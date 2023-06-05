@@ -224,6 +224,57 @@ void InverseDiffusionMatrix(u32 diffusion[32], u8 majorRow[32], u32 diagonalisat
     }
 }
 
+void InverseDiffusionMatrix(u32 diffusion[32], u32 inverseDiffusion[32])
+/*
+    For a given diffusion matrix it will stores all the operations required to invert the system and find the input based on the output
+    */
+{
+    // Initialization
+    u32 temp_matrix[32];
+    u32 temp;
+    for(u8 i=0; i<32;i++){
+        temp_matrix[i] = diffusion[i];
+        inverseDiffusion[i] = 1<<i;
+    }
+    u8 majorRow[32];
+    DisplayDiffusionMatrix(temp_matrix);
+    DisplayDiffusionMatrix(inverseDiffusion);
+    for(u8 i=0; i<32;i++){
+        // First reagence to be sure to have at least the first row someting non nul as coefficient
+        u8 k = i;
+        while (!((temp_matrix[k]>>i)&1)){
+            k += 1;
+        }
+        // Invert element
+        temp = temp_matrix[k];
+        temp_matrix[k] = temp_matrix[i];
+        temp_matrix[i] = temp;
+        // Invert element
+        temp = inverseDiffusion[k];
+        inverseDiffusion[k] = inverseDiffusion[i];
+        inverseDiffusion[i] = temp;
+        // Remove for all the other minor rows the i-th element by adding the i-th line if required
+        for (u8 j=i+1; j<32;j++){
+            temp = (temp_matrix[j]>>i)&1;
+            temp_matrix[j] ^= temp_matrix[i]*(temp);
+            inverseDiffusion[j] ^= inverseDiffusion[i]*(temp);
+        }
+    }
+    DisplayDiffusionMatrix(temp_matrix);
+    DisplayDiffusionMatrix(inverseDiffusion);
+    // Then we need to remove for all lines all the non diagonal elements
+    for(u8 i=0; i<32;i++){
+        u32 temp=0;
+        for (u8 j=i+1; j<32;j++){
+            temp = ((temp_matrix[31-j]>>(31-i))&1);
+            temp_matrix[31-j] ^= temp_matrix[31-i]*temp;
+            inverseDiffusion[31-j] ^= inverseDiffusion[31-i]*temp;
+        }
+    }
+    DisplayDiffusionMatrix(temp_matrix);
+    DisplayDiffusionMatrix(inverseDiffusion);
+}
+
 void InverseDiffusion(u8 input[32], u8 majorRow[32], u32 diagonalisationOperation[64], u32 temp)
 {
     // First part of the diagonalisation
@@ -245,6 +296,14 @@ void InverseDiffusion(u8 input[32], u8 majorRow[32], u32 diagonalisationOperatio
             input[31-j]^=(diagonalisationOperation[32+i]>>(31-j)&1)*input[31-i];
         }
     }
+}
+
+void InverseDiffusion(u8 input[32], u8 output[32], u32 inverseDiffusion[32])
+{
+
+    for(u8 i=0;i<32;i++)
+        for(u8 j=0;j<32;j++)
+            output[i]^=input[j]*((inverseDiffusion[i]>>j)&1);
 }
 
 /*
@@ -418,8 +477,11 @@ int main(int argc, char* argv[])
     TestDiffusion(diffusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
     TestBackward(inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
 
-    ComputeNonReversibleElement(confusion);
-    ComputeNonReversibleElement(confusion+256*sizeof(u8));
+    //ComputeNonReversibleElement(confusion);
+    //ComputeNonReversibleElement(confusion+256*sizeof(u8));
+
+    u32 inverseDiffusion[32];
+    InverseDiffusionMatrix(diffusion , inverseDiffusion);
 
     /*
 
