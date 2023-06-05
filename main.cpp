@@ -72,19 +72,26 @@ void Forward(u8 c[32],u8 d[32],u8 s[512],u32 p[32])
 void ForwardTest(u8 c[32],u8 d[32],u8 s[512],u32 p[32])
 {
 
-    for(u32 i=0;i<1;i++)
+    /*for(u32 i=0;i<1;i++)
     {
 
         for(u8 j=0;j<32;j++)
         {
-            //d[j]=s[c[j]];
+            d[j]=s[c[j]];
             c[j]=0;
         }
 
         for(u8 j=0;j<32;j++)
             for(u8 k=0;k<32;k++)
                 c[j]^=d[k]*((p[j]>>k)&1);
+    }*/
+    for(u8 j=0;j<32;j++){
+        d[j]=s[c[j]];
+        c[j] = 0;
     }
+    for(u8 j=0;j<32;j++)
+        for(u8 k=0;k<32;k++)
+            c[j]^=d[k]*((p[j]>>k)&1);
     for(u8 i=0;i<16;i++)
         d[i]=s[c[i*2]]^s[c[i*2+1]+256];
 }
@@ -111,38 +118,19 @@ Even fewer people have reached this final level. Congratulations to them!
 */
 
 /*
-First compute the inverse research of the confusion matrix
+First section gathers the functions that will be used to revert the last forward operation corresponding to a cross operation between confusion elements
 */
 
-void ComputeInverseConfusion(u8 inverseConfusion[256], u8 confusion[256])
-{
-    for (u32 i=0; i<256;i++){
-        inverseConfusion[confusion[i]] = i;
-    }
-}
-
-/*
-First compute the correlation matrix 256x256 resulting in all the operations XOR between confusion elements that will be used to determine what are the elements that can be used as solution
-*/
-
-
-void ComputeConfusionCrossXorOperations(u8 s[512], u8 confusion_cross_xor_operations[512])
+void ComputeConfusionCrossXorOperations(u8 confusion[512], u8 confusion_cross_xor_operations[512])
 {
     for(u32 i=0; i<256;i++)
         for (u32 j=0; j<256;j++){
-            confusion_cross_xor_operations[s[i]^s[j+256]]=i;
-            confusion_cross_xor_operations[s[i]^s[j+256]+256]=j;
+            confusion_cross_xor_operations[confusion[i]^confusion[j+256]]=i;
+            confusion_cross_xor_operations[confusion[i]^confusion[j+256]+256]=j;
         }
 }
 
-
-void FindConfusionCouple(u8 value, u8 confusion_cross_xor_operations[512], u8 solution[2])
-{
-    solution[0] = confusion_cross_xor_operations[value];
-    solution[1] = confusion_cross_xor_operations[value+256];
-}
-
-void FindAllConfusionCouples(u8 value[16], u8 confusion_cross_xor_operations[256*256], u8 solutions[32])
+void InvertConfusionCorrelation(u8 value[16], u8 confusion_cross_xor_operations[512], u8 solutions[32])
 {
     for (u8 k=0; k<16;k++){
         solutions[2*k] = confusion_cross_xor_operations[value[k]];
@@ -150,11 +138,40 @@ void FindAllConfusionCouples(u8 value[16], u8 confusion_cross_xor_operations[256
     }
 }
 
+/*
+Second section gathers the functions that will be used to revert the first forward operation corresponding to the confusion matrix affectation. For a scalar it will return one index of the confusion matrix matching the result
+*/
+
+
+void ComputeInverseConfusion(u8 inverseConfusion[256], u8 confusion[256])
+    /*
+    Computation of the table storing the inverse of the confusion operation
+    */
+{
+    for (u32 i=0; i<256;i++){
+        inverseConfusion[confusion[i]] = i;
+    }
+}
+
+void InverseConfusion(u8 inverseConfusion[256], u8 input[32])
+    /*
+    Invert the operation of the confusion affectation
+    */
+{
+    for (u8 i=0; i<32;i++){
+        input[i] = inverseConfusion[input[i]];
+    }
+}
 
 /*
-Display the operation system to invert
+Third section gathers the functions that will be used to revert the diffusion operation corresponding to a linear system in F2 to invert
 */
+
+
 void DisplayDiffusionMatrix(u32 diffusion[32])
+    /*
+    Display the diffusion matrix, useful for debugging
+    */
 {
     std::cout << std::endl;
     for(u8 i=0; i<32;i++){
@@ -166,6 +183,9 @@ void DisplayDiffusionMatrix(u32 diffusion[32])
 }
 
 void InverseDiffusionMatrix(u32 diffusion[32], u8 majorRow[32], u32 diagonalisationOperation[64])
+    /*
+    For a given diffusion matrix it will stores all the operations required to invert the system and find the input based on the output
+    */
 {
     // Initialization
     u32 inverseDiffusion[32];
@@ -186,14 +206,14 @@ void InverseDiffusionMatrix(u32 diffusion[32], u8 majorRow[32], u32 diagonalisat
         u32 temp = inverseDiffusion[k];
         inverseDiffusion[k] = inverseDiffusion[i];
         inverseDiffusion[i] = temp;
-        // Compute all elements
+        // Remove for all the other minor rows the i-th element by adding the i-th line if required
         for (u8 j=i+1; j<32;j++){
             temp = ((inverseDiffusion[j]>>i)&1);
             inverseDiffusion[j] ^= inverseDiffusion[i]*(temp);
             diagonalisationOperation[i]^=temp<<j;
         }
     }
-    // Then we need to remove from the other direction all the elements
+    // Then we need to remove for all lines all the non diagonal elements
     for(u8 i=0; i<32;i++){
         u32 temp=0;
         for (u8 j=i+1; j<32;j++){
@@ -204,13 +224,8 @@ void InverseDiffusionMatrix(u32 diffusion[32], u8 majorRow[32], u32 diagonalisat
     }
 }
 
-void InverseDiffusion(u8 input[32], u8 output[32], u8 majorRow[32], u32 diagonalisationOperation[64])
+void InverseDiffusion(u8 input[32], u8 majorRow[32], u32 diagonalisationOperation[64], u32 temp)
 {
-    u32 temp = 0;
-    // Initialization
-    for(u8 i=0; i<32;i++){
-        input[i] = output[i];
-    }
     // First part of the diagonalisation
     for(u8 i=0; i<32;i++){
         // Invert element
@@ -232,52 +247,12 @@ void InverseDiffusion(u8 input[32], u8 output[32], u8 majorRow[32], u32 diagonal
     }
 }
 
-void InverseDiffusion(u8 input[32], u8 output[32], u32 diffusion[32])
-    {
-    // Initialization
-    u32 inverseDiffusion[32];
-    for(u8 i=0; i<32;i++){
-        inverseDiffusion[i] = diffusion[i];
-        input[i] = output[i];
-    }
+/*
+ * All the initialization functions to speed the backward operation by setting some caches variables
+ *
+ */
 
-    for(u8 i=0; i<32;i++){
-        u32 temp=0;
-        u8 majorRow[32];
-        u8 k = i;
-        while (!((inverseDiffusion[k]>>i)&1)){
-            k += 1;
-        }
-        // Set up major row
-        majorRow[i]=k;
-        // Invert element
-        temp = inverseDiffusion[k];
-        inverseDiffusion[k] = inverseDiffusion[i];
-        inverseDiffusion[i] = temp;
-        temp = input[k];
-        input[k] = input[i];
-        input[i] = temp;
-        // Compute all elements
-        for (u8 j=i+1; j<32;j++){
-            temp = ((inverseDiffusion[j]>>i)&1);
-            inverseDiffusion[j] ^= inverseDiffusion[i]*temp;
-            input[j] ^= input[i]*temp;
-        }
-    }
-
-    // Then we need to remove from the other direction all the elements
-    for(u8 i=0; i<32;i++){
-        u32 temp=0;
-        for (u8 j=i+1; j<32;j++){
-            temp = ((inverseDiffusion[31-j]>>(31-i))&1);
-            inverseDiffusion[31-j] ^= inverseDiffusion[31-i]*temp;
-            input[31-j]^=temp*input[31-i];
-        }
-    }
-}
-
-
-void setup(u8 confusion[512], u32 diffusion[32], u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512])
+void Setup(u8 confusion[512], u32 diffusion[32], u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512])
 {
     // First compute the inverse confusion matrix
     ComputeInverseConfusion(inverseConfusion, confusion);
@@ -287,86 +262,102 @@ void setup(u8 confusion[512], u32 diffusion[32], u8 inverseConfusion[256], u8 ma
     InverseDiffusionMatrix(diffusion, majorRow, diagonalisationOperation);
 }
 
-void backward(u8 input[32], u8 output[16], u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512])
+void Backward(u8 input[32], u8 output[16], u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512], u32 temp)
 {
 
     // First reverse the last operation
-    FindAllConfusionCouples(output, confusion_cross_xor_operations, input);
+    InvertConfusionCorrelation(output, confusion_cross_xor_operations, input);
     // Then reverse the different confusion / diffusion operations
-    for (u32 i=0; i<1; i++){
-        u8 output[32];
-        for (u8 j=0; j<32; j++){
-            output[j] = input[j];
-        }
-        InverseDiffusion(input, output, majorRow, diagonalisationOperation);
-        /*for (u8 j=0; j<32; j++){
-            input[j]=inverseConfusion[input[j]];
-        }*/
-    }
+    //for (u32 i=0; i<1; i++){
+    InverseDiffusion(input, majorRow, diagonalisationOperation, temp);
+    InverseConfusion(inverseConfusion, input);
+    //}
 }
 
 
-void testInverseConfusion(u8 confusion[512], u8 inverseConfusion[256]){
+/*
+ * All the test functions to ensure validity of the different backward operations
+ *
+ */
+
+void TestInverseConfusion(u8 confusion[512], u8 inverseConfusion[256]){
+
     u8 testValue[3] = {14, 125, 24};
     for (u8 i; i<3; i++){
         if (inverseConfusion[confusion[i]] != i){
             std::cout<<"Test failure for inverse confusion" << std::endl;
         }
     }
+    u8 testValueB[32] = {18, 76, 14, 84, 36, 160, 64, 247, 154, 81, 209, 72, 14, 44, 159, 150, 57, 127, 231, 41, 172, 151, 154, 243, 243, 53, 168, 48, 23, 239, 212, 165};
+    u8 input[32];
+    for (u8 i; i<32; i++){
+        input[i] = testValueB[i];
+    }
+    InverseConfusion(inverseConfusion, input);
+    for (u8 i; i<32; i++){
+        if (confusion[input[i]] != testValueB[i]){
+            std::cout<< int(testValueB[i]) << std::endl;
+            std::cout<<"Test failure for inverse confusion" << std::endl;
+        }
+    }
     std::cout<<"Test valid for inverse confusion" << std::endl;
 }
 
-void testInverseConfusionCorrelation(u8 confusion[512], u8 confusion_cross_xor_operations[512]){
-    u8 testValueA[3] = {14, 125, 24};
-    u8 testValueB[3] = {28, 246, 9};
-    for (u8 i; i<3; i++){
-        u8 valueA = confusion[testValueA[i]]^confusion[testValueB[i]+256];
-        u8 solutions[2];
-        FindConfusionCouple(valueA, confusion_cross_xor_operations, solutions);
-        u8 valueB = confusion[solutions[0]]^confusion[solutions[1]+256];
-
-        if (valueA != valueB){
+void TestInverseConfusionCorrelation(u8 confusion[512], u8 confusion_cross_xor_operations[512]){
+    u8 input[32] ;
+    u8 output[16] = "Hire me!!!!!!!!";
+    InvertConfusionCorrelation(output, confusion_cross_xor_operations, input);
+    for (u8 i; i<16; i++){
+        u8 value = confusion[input[2*i]]^confusion[input[2*i+1]+256];
+        if (value != output[i]){
             std::cout<<"Test failure for inverse confusion correlation operation" << std::endl;
         }
     }
     std::cout<<"Test valid for inverse confusion correlation operation" << std::endl;
 }
 
-void testDiffusion(u32 diffusion[32], u8 majorRow[32], u32 diagonalisationOperation[64])
+void TestDiffusion(u32 diffusion[32], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512])
 {
 
-    // Input to match
-    u8 input[32]={
-        //change only this :
-        0x66,0xd5,0x4e,0x28,0x5f,0xff,0x6b,0x53,0xac,0x3b,0x34,0x14,0xb5,0x3c,0xb2,0xc6,
-        0xa4,0x85,0x1e,0x0d,0x86,0xc7,0x4f,0xba,0x75,0x5e,0xcb,0xc3,0x6e,0x48,0x79,0x8f
-        //
-    };
-    u8 output[32];
-    for(u8 i=0;i<32;i++)
+    u8 input[32];
+    u8 output[16] = "Hire me!!!!!!!!";
+    // Revert confusion correlation
+    InvertConfusionCorrelation(output, confusion_cross_xor_operations, input);
+    // Revert diffusion
+    u32 temp;
+    u8 outputToMatch[32];
+    for(u8 j=0;j<32;j++)
     {
-        output[i] = 0;
-        for(u8 j=0;j<32;j++)
-            output[i]^=input[j]*((diffusion[i]>>j)&1);
+        outputToMatch[j]=input[j];
     }
-    u8 inputComputed[32];
-    InverseDiffusion(inputComputed, output, majorRow, diagonalisationOperation);
+    InverseDiffusion(input, majorRow, diagonalisationOperation, temp);
+    u8 c[32];
+    for(u8 j=0;j<32;j++)
+    {
+        c[j]=0;
+    }
+
+    for(u8 j=0;j<32;j++)
+        for(u8 k=0;k<32;k++)
+            c[j]^=input[k]*((diffusion[j]>>k)&1);
+
     for (u8 i=0; i<32; i++){
-        if (inputComputed[i] != input[i]){
+        if (c[i] != outputToMatch[i]){
             std::cout<<"Test failure for inverse diffusion operation" << std::endl;
         }
     }
     std::cout<<"Test valid for inverse diffusion operation" << std::endl;
 }
 
-void testBackward(u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512]){
+void TestBackward(u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisationOperation[64], u8 confusion_cross_xor_operations[512]){
 
     u8 output[16] = "Hire me!!!!!!!!";
     u8 match[32];
     u8 input[32];
+    u32 temp;
 
     // Launch backward
-    backward(input, output, inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
+    Backward(input, output, inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations, temp);
     // Launch forward
     ForwardTest(input, match, confusion, diffusion);
     for (u8 i=0; i<16; i++){
@@ -376,6 +367,26 @@ void testBackward(u8 inverseConfusion[256], u8 majorRow[32], u32 diagonalisation
         }
     }
     std::cout<<"Test valid for backward" << std::endl;
+}
+
+/*
+ * Compute all non reversible elements from confusion matrix
+ */
+
+void ComputeNonReversibleElement(u8 confusion[256]){
+
+    u8 compatibleElement[256];
+    for (u32 i=0; i<256; i++){
+        compatibleElement[i] = 0;
+    }
+    for (u32 i=0; i<256; i++){
+        compatibleElement[confusion[i]] = 1;
+    }
+    for (u32 i=0; i<256; i++){
+        if (compatibleElement[i] == 0){
+            std::cout << i << std::endl;
+        }
+    }
 }
 
 int main(int argc, char* argv[])
@@ -396,16 +407,22 @@ int main(int argc, char* argv[])
     // Definition of the different elements that are used to invert diffusion operation
     u8 majorRow[32];
     u32 diagonalisationOperation[64];
+    u32 temp;
 
     // Launch the computation of all the static elements that will be used to reverse the different operations used during the forward pass
-    setup(confusion, diffusion, inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
+    Setup(confusion, diffusion, inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
 
     // Launch test
-    testInverseConfusion(confusion, inverseConfusion);
-    testInverseConfusionCorrelation(confusion, confusion_cross_xor_operations);
-    testDiffusion(diffusion, majorRow, diagonalisationOperation);
-    testBackward(inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
+    TestInverseConfusion(confusion, inverseConfusion);
+    TestInverseConfusionCorrelation(confusion, confusion_cross_xor_operations);
+    TestDiffusion(diffusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
+    TestBackward(inverseConfusion, majorRow, diagonalisationOperation, confusion_cross_xor_operations);
+
+    ComputeNonReversibleElement(confusion);
+    ComputeNonReversibleElement(confusion+256*sizeof(u8));
+
     /*
+
 
 
     // Definition of the inverse confusion matrix
